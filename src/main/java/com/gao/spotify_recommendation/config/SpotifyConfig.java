@@ -4,8 +4,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import se.michaelthelin.spotify.SpotifyApi;
-
-import java.net.URI;
+import se.michaelthelin.spotify.SpotifyHttpManager;
 
 @Configuration
 public class SpotifyConfig {
@@ -20,11 +19,11 @@ public class SpotifyConfig {
     private String redirectUri;
 
     @Bean
-    public SpotifyApi SpotifyApi() {
+    public SpotifyApi spotifyApi() {
         return new SpotifyApi.Builder()
                 .setClientId(clientId)
                 .setClientSecret(clientSecret)
-                .setRedirectUri(URI.create(redirectUri))
+                .setRedirectUri(SpotifyHttpManager.makeUri(redirectUri))
                 .build();
     }
 }
