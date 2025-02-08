@@ -5,10 +5,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import se.michaelthelin.spotify.model_objects.specification.Track;
-import se.michaelthelin.spotify.model_objects.specification.TrackSimplified;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import java.util.*;
 import java.util.stream.Collectors;
-
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/recommendation")
@@ -16,45 +16,32 @@ import java.util.List;
 public class RecommendationController {
     private final RecommendationService recommendationService;
 
-    @GetMapping("/top-tracks/{userId}")
-    public ResponseEntity<?> getUserTopTracks(@PathVariable String userId) {
+    @GetMapping("/top-tracks/pretty/{userId}")
+    public ResponseEntity<?> getPrettyUserTopTracks(@PathVariable String userId) {
         try {
-            List<TrackSimplified> simplifiedTracks = recommendationService.getUserTopTracks(userId);
-            List<Track> tracks = simplifiedTracks.stream()
-                    .map(trackSimplified -> new Track.Builder()
-                            .setId(trackSimplified.getId())
-                            .setName(trackSimplified.getName())
-                            .setArtists(trackSimplified.getArtists())
-                            .setAlbum(null) // or handle appropriately if album data is needed
-                            .setDiscNumber(trackSimplified.getDiscNumber())
-                            .setDurationMs(trackSimplified.getDurationMs())
-                            .setExplicit(trackSimplified.getIsExplicit())
-                            .setHref(trackSimplified.getHref())
-                            .setIsPlayable(trackSimplified.getIsPlayable())
-                            .setPreviewUrl(trackSimplified.getPreviewUrl())
-                            .setTrackNumber(trackSimplified.getTrackNumber())
-                            .setUri(trackSimplified.getUri())
-                            .build())
-                    .collect(Collectors.toList());
+            List<Track> tracks = recommendationService.getUserTopTracks(userId);
+
             if (tracks.isEmpty()) {
                 return ResponseEntity.status(404).body("No top tracks found.");
             }
-            return ResponseEntity.ok(tracks);
+
+            List<Map<String, Object>> simplifiedOutput = tracks.stream().map(track -> {
+                Map<String, Object> trackInfo = new HashMap<>();
+                trackInfo.put("name", track.getName());
+                trackInfo.put("uri", track.getUri());
+                trackInfo.put("artists", Arrays.stream(track.getArtists())
+                        .map(artist -> artist.getName())
+                        .collect(Collectors.toList()));
+                return trackInfo;
+            }).collect(Collectors.toList());
+
+            ObjectMapper mapper = new ObjectMapper();
+            mapper.enable(SerializationFeature.INDENT_OUTPUT);
+            String prettyJson = mapper.writeValueAsString(simplifiedOutput);
+
+            return ResponseEntity.ok(prettyJson);
         } catch (Exception e) {
             return ResponseEntity.status(500).body("Error fetching top tracks: " + e.getMessage());
-        }
-    }
-
-    @GetMapping("/top-artists/{userId}")
-    public ResponseEntity<?> getUserTopArtists(@PathVariable String userId) {
-        try {
-            List<String> artists = recommendationService.getUserTopArtists(userId);
-            if (artists.isEmpty()) {
-                return ResponseEntity.status(404).body("No top artists found.");
-            }
-            return ResponseEntity.ok(artists);
-        } catch (Exception e) {
-            return ResponseEntity.status(500).body("Error fetching top artists: " + e.getMessage());
         }
     }
 }
