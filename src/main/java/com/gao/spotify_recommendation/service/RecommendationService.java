@@ -2,52 +2,111 @@ package com.gao.spotify_recommendation.service;
 
 import com.gao.spotify_recommendation.entity.UserDetails;
 import com.gao.spotify_recommendation.repository.UserDetailsRepository;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import se.michaelthelin.spotify.SpotifyApi;
+import se.michaelthelin.spotify.exceptions.SpotifyWebApiException;
+import org.apache.hc.core5.http.ParseException;
+import se.michaelthelin.spotify.model_objects.specification.Paging;
 import se.michaelthelin.spotify.model_objects.specification.Track;
 import se.michaelthelin.spotify.model_objects.specification.TrackSimplified;
+import se.michaelthelin.spotify.requests.authorization.authorization_code.AuthorizationCodeRefreshRequest;
 import se.michaelthelin.spotify.requests.data.personalization.simplified.GetUsersTopTracksRequest;
-import se.michaelthelin.spotify.requests.data.browse.GetRecommendationsRequest;
+import se.michaelthelin.spotify.requests.data.personalization.simplified.GetUsersTopArtistsRequest;
 
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
+@RequiredArgsConstructor
 public class RecommendationService {
 
     private final SpotifyApi spotifyApi;
     private final UserDetailsRepository userDetailsRepository;
 
-    @Autowired
-    public RecommendationService(SpotifyApi spotifyApi, UserDetailsRepository userDetailsRepository) {
-        this.spotifyApi = spotifyApi;
-        this.userDetailsRepository = userDetailsRepository;
-    }
-
-    public List<TrackSimplified> getRecommendations(String userId) throws Exception {
-        UserDetails user = userDetailsRepository.findByRefId(userId);
-        if (user == null) {
+    public List<TrackSimplified> getUserTopTracks(String userId) throws Exception {
+        UserDetails userDetails = userDetailsRepository.findByRefId(userId);
+        if (userDetails == null) {
             throw new Exception("User not found in database: " + userId);
         }
 
-        spotifyApi.setAccessToken(user.getAccessToken());
+        spotifyApi.setAccessToken(userDetails.getAccessToken());
 
-        GetUsersTopTracksRequest topTracksRequest = spotifyApi.getUsersTopTracks()
-                .limit(5)
-                .time_range("medium_term")
-                .build();
-        Track[] topTracks = topTracksRequest.execute().getItems();
-        if (topTracks.length == 0) {
-            throw new Exception("No top tracks found.");
+        try {
+            GetUsersTopTracksRequest request = spotifyApi.getUsersTopTracks()
+                    .limit(10)
+                    .build();
+
+            Paging<Track> topTracksPaging = request.execute();
+            return Arrays.stream(topTracksPaging.getItems())
+                    .map(track -> new TrackSimplified.Builder()
+                            .setArtists(track.getArtists())
+                            .setDurationMs(track.getDurationMs())
+                            .setName(track.getName())
+                            .setUri(track.getUri())
+                            .build())
+                    .collect(Collectors.toList());
+
+        } catch (SpotifyWebApiException e) {
+            if (e.getMessage().contains("The access token expired")) {
+                System.out.println("Access token expired for user: " + userId);
+                refreshAccessToken(userDetails);
+                return getUserTopTracks(userId);  // Retry after refreshing
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    public List<String> getUserTopArtists(String userId) throws Exception {
+        UserDetails userDetails = userDetailsRepository.findByRefId(userId);
+        if (userDetails == null) {
+            throw new Exception("User not found in database: " + userId);
         }
 
-        String seedTrack = topTracks[0].getId();
-        GetRecommendationsRequest recommendationsRequest = spotifyApi.getRecommendations()
-                .seed_tracks(seedTrack)
-                .limit(10)
+        spotifyApi.setAccessToken(userDetails.getAccessToken());
+
+        try {
+            GetUsersTopArtistsRequest request = spotifyApi.getUsersTopArtists()
+                    .limit(10)
+                    .build();
+
+            return Arrays.stream(request.execute().getItems())
+                    .map(artist -> artist.getName())
+                    .collect(Collectors.toList());
+
+        } catch (SpotifyWebApiException e) {
+            if (e.getMessage().contains("The access token expired")) {
+                System.out.println("Access token expired for user: " + userId);
+                refreshAccessToken(userDetails);
+                return getUserTopArtists(userId);  // Retry after refreshing
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    private void refreshAccessToken(UserDetails userDetails) throws IOException, SpotifyWebApiException, ParseException {
+        AuthorizationCodeRefreshRequest refreshRequest = spotifyApi.authorizationCodeRefresh()
+                .refresh_token(userDetails.getRefreshToken())
                 .build();
 
-        return Arrays.asList(recommendationsRequest.execute().getTracks());
+        try {
+            var refreshResponse = refreshRequest.execute(); // Throws ParseException
+            String newAccessToken = refreshResponse.getAccessToken();
+
+            // Update SpotifyApi and database with new access token
+            spotifyApi.setAccessToken(newAccessToken);
+            userDetails.setAccessToken(newAccessToken);
+            userDetailsRepository.save(userDetails);
+
+            System.out.println("Access token refreshed for user: " + userDetails.getRefId());
+
+        } catch (IOException | SpotifyWebApiException e) {
+            System.err.println("Error refreshing token: " + e.getMessage());
+            throw e;
+        }
     }
 }

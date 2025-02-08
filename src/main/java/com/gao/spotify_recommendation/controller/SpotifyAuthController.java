@@ -4,8 +4,10 @@ import com.gao.spotify_recommendation.entity.UserDetails;
 import com.gao.spotify_recommendation.repository.UserDetailsRepository;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 import se.michaelthelin.spotify.SpotifyApi;
 import se.michaelthelin.spotify.model_objects.credentials.AuthorizationCodeCredentials;
 import se.michaelthelin.spotify.model_objects.specification.User;
@@ -15,9 +17,8 @@ import se.michaelthelin.spotify.requests.authorization.authorization_code.Author
 import java.io.IOException;
 import java.net.URI;
 
-
 @RestController
-@Controller
+@RequestMapping("/api/auth")
 public class SpotifyAuthController {
 
     private final SpotifyApi spotifyApi;
@@ -48,11 +49,9 @@ public class SpotifyAuthController {
             spotifyApi.setAccessToken(credentials.getAccessToken());
             spotifyApi.setRefreshToken(credentials.getRefreshToken());
 
-            // Fetch user details from Spotify
             User user = spotifyApi.getCurrentUsersProfile().build().execute();
             System.out.println("User logged in: " + user.getId());
 
-            // Save user in database
             UserDetails userDetails = userDetailsRepository.findByRefId(user.getId());
             if (userDetails == null) {
                 userDetails = new UserDetails();
@@ -65,13 +64,11 @@ public class SpotifyAuthController {
             userDetailsRepository.save(userDetails);
             System.out.println("User " + user.getId() + " stored in DB.");
 
-            // Redirect to frontend or valid page
-            response.sendRedirect("http://localhost:3000/dashboard?userId=" + user.getId());
-
+            response.getWriter().write("Authentication successful for user: " + user.getDisplayName());
         } catch (Exception e) {
             System.err.println("Error during authentication: " + e.getMessage());
             try {
-                response.sendRedirect("http://localhost:3000/error");
+                response.getWriter().write("Error during authentication: " + e.getMessage());
             } catch (IOException ioException) {
                 ioException.printStackTrace();
             }
